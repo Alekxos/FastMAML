@@ -119,27 +119,24 @@ def main(experiment_name, meta_train_iterations, meta_lr, inner_lr, meta_batch_s
           # Iterate through meta-gradients in random order
         shuffled_order = list(range(meta_batch_size))
         random.shuffle(shuffled_order)
-          # Precompute meta-gradient L2 magnitudes
+          # Precompute magnitudes of meta-gradient subspaces
         meta_gradient_magnitudes = []
         for task_meta_gradient in meta_gradients:
-            task_meta_gradient_magnitude = 0
+            meta_gradient_subspace_magnitude = {}
             for meta_grad_key in task_meta_gradient.keys():
-                task_meta_gradient_magnitude += torch.sum(torch.mul(task_meta_gradient[meta_grad_key], task_meta_gradient[meta_grad_key]))
-            meta_gradient_magnitudes.append(torch.sqrt(task_meta_gradient_magnitude))
-
+                meta_gradient_subspace_magnitude[meta_grad_key] = torch.sqrt(torch.sum(torch.mul(task_meta_gradient[meta_grad_key], task_meta_gradient[meta_grad_key])))
+            meta_gradient_magnitudes.append(meta_gradient_subspace_magnitude)
         for first_iteration_index, first_meta_grad_index in enumerate(shuffled_order):
             first_meta_gradient = meta_gradients[first_meta_grad_index]
             for second_meta_grad_index in shuffled_order[first_iteration_index:]:
                 second_meta_gradient = meta_gradients[second_meta_grad_index]
-                dot_product, cosine_similarity = 0, 0
                 for meta_grad_key in first_meta_gradient.keys():
                     # Compute cosine product between m_i and m_j
-                    dot_product += torch.sum(torch.mul(first_meta_gradient[meta_grad_key], second_meta_gradient[meta_grad_key]))
-                    cosine_similarity += dot_product / (meta_gradient_magnitudes[first_meta_grad_index] * meta_gradient_magnitudes[second_meta_grad_index])
+                    dot_product = torch.sum(torch.mul(first_meta_gradient[meta_grad_key], second_meta_gradient[meta_grad_key]))
+                    #cosine_similarity = dot_product / (meta_gradient_magnitudes[first_meta_grad_index] * meta_gradient_magnitudes[second_meta_grad_index])
                 # If negative, update m_i
-                if cosine_similarity < 0:
-                    for meta_grad_key in first_meta_gradient.keys():
-                        first_meta_gradient[meta_grad_key] = first_meta_gradient[meta_grad_key] - dot_product /  meta_gradient_magnitudes[second_meta_grad_index]**2 * second_meta_gradient[meta_grad_key]
+                    if dot_product < 0:
+                        first_meta_gradient[meta_grad_key] = first_meta_gradient[meta_grad_key] - dot_product /  meta_gradient_magnitudes[second_meta_grad_index][meta_grad_key]**2 * second_meta_gradient[meta_grad_key]
             meta_gradients[first_meta_grad_index] = first_meta_gradient
             # Update individual keys/values at a time or entire 'vector' of key/value pairs?
 
