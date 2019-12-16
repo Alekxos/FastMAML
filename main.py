@@ -12,10 +12,11 @@ from os import path
 import os
 import time
 from pathlib import Path
+import random
 
 # Runtime parameters
 @click.command()
-@click.argument('dataset', type=str, default='omniglot')
+@click.option('--experiment_name', type=str, default='omniglot')
 @click.option('--meta_train_iterations', type=int, default=15000, help='number of meta-training iterations')
 @click.option('--meta_lr', type=float, default=0.001, help='outer loop learning rate')
 @click.option('--inner_lr', type=float, default=0.04, help='inner loop learning rate')
@@ -30,7 +31,7 @@ from pathlib import Path
 @click.option('--num_inner_updates', type=int, default=1, help='number of inner gradient updates during inner loop training')
 @click.option('--output_dir', type=str, default='./output', help='directory to store output')
 
-def main(dataset, meta_train_iterations, meta_lr, inner_lr, meta_batch_size, img_size, num_channels, k_shot, n_way, data_path,
+def main(experiment_name, meta_train_iterations, meta_lr, inner_lr, meta_batch_size, img_size, num_channels, k_shot, n_way, data_path,
          num_inner_updates, output_dir):
     # Training params
     train_print_spacing = 10
@@ -38,7 +39,7 @@ def main(dataset, meta_train_iterations, meta_lr, inner_lr, meta_batch_size, img
     if not path.exists(output_dir):
         os.mkdir(output_dir)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    custom_savename = f"{dataset}_K_{k_shot}_N_{n_way}_mlr_{meta_lr}_ilr_{inner_lr}_{timestamp}"
+    custom_savename = f"{experiment_name}_K_{k_shot}_N_{n_way}_mlr_{meta_lr}_ilr_{inner_lr}_{timestamp}"
     current_run_savedir = str(Path(output_dir).joinpath(custom_savename))
     if not path.exists(current_run_savedir):
         os.mkdir(current_run_savedir)
@@ -113,7 +114,35 @@ def main(dataset, meta_train_iterations, meta_lr, inner_lr, meta_batch_size, img
         sample_output = model.forward(sample_input).view(1, n_way)
         sample_label = torch.argmax(torch.tensor(sample_label), dim=-1).view(1)
         #print(f"sample output: {sample_output.shape}, sample label: {sample_label.shape}")
-        loss = F.cross_entropy(sample_output, sample_label)
+        sample_loss = F.cross_entropy(sample_output, sample_label)
+        # Apply meta-PCGrad update rule
+          # Iterate through meta-gradients in random order
+        shuffled_order = list(range(meta_batch_size))
+        random.shuffle(shuffled_order)
+          # Precompute meta-gradient L2 magnitudes
+        meta_gradient_magnitudes = []
+        for task_meta_gradient in meta_gradients:
+            task_meta_gradient_magnitude = 0
+            for meta_grad_key in task_meta_gradient.keys():
+                task_meta_gradient_magnitude += torch.sum(torch.mul(task_meta_gradient[meta_grad_key], task_meta_gradient[meta_grad_key]))
+            meta_gradient_magnitudes.append(torch.sqrt(task_meta_gradient_magnitude))
+
+        for first_iteration_index, first_meta_grad_index in enumerate(shuffled_order):
+            first_meta_gradient = meta_gradients[first_meta_grad_index]
+            for second_meta_grad_index in shuffled_order[first_iteration_index:]:
+                second_meta_gradient = meta_gradients[second_meta_grad_index]
+                dot_product, cosine_similarity = 0, 0
+                for meta_grad_key in first_meta_gradient.keys():
+                    # Compute cosine product between m_i and m_j
+                    dot_product += torch.sum(torch.mul(first_meta_gradient[meta_grad_key], second_meta_gradient[meta_grad_key]))
+                    cosine_similarity += dot_product / (meta_gradient_magnitudes[first_meta_grad_index] * meta_gradient_magnitudes[second_meta_grad_index])
+                # If negative, update m_i
+                if cosine_similarity < 0:
+                    for meta_grad_key in first_meta_gradient.keys():
+                        first_meta_gradient[meta_grad_key] = first_meta_gradient[meta_grad_key] - dot_product /  meta_gradient_magnitudes[second_meta_grad_index]**2 * second_meta_gradient[meta_grad_key]
+            meta_gradients[first_meta_grad_index] = first_meta_gradient
+            # Update individual keys/values at a time or entire 'vector' of key/value pairs?
+
         meta_gradient_dict = {k: sum(d[k] for d in meta_gradients) for k in meta_gradients[0].keys()}
         hooks = []
         for (k, v) in model.named_parameters():
@@ -125,7 +154,7 @@ def main(dataset, meta_train_iterations, meta_lr, inner_lr, meta_batch_size, img
             hooks.append(v.register_hook(get_closure()))
         # Compute grads for current step, replace with summed gradients as defined by hook
         meta_optimizer.zero_grad()
-        loss.backward()
+        sample_loss.backward()
         # Update the net parameters with the accumulated gradient according to optimizer
         meta_optimizer.step()
         # Remove the hooks before next training phase
