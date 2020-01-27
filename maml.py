@@ -105,6 +105,7 @@ def meta_iteration(model, config, meta_image_batch, meta_label_batch):
                 inner_grads = torch.autograd.grad(support_loss, model.parameters(), create_graph=True)
             else:
                 inner_grads = torch.autograd.grad(support_loss, adapted_weights.values(), create_graph=True)
+            # TODO: Replace standard SGD inner loop update with more powerful optimizer ex. Adam
             adapted_weights = OrderedDict((name, param - config.inner_lr * grad) for ((name, param), grad) in
                                           zip(adapted_weights.items(), inner_grads))
 
@@ -148,7 +149,7 @@ def meta_train(model, data_generator, meta_train_iterations, config):
     meta_optimizer = Adam(model.parameters(), lr=config.meta_lr)
     for meta_step in range(meta_train_iterations):
         print(f"Meta-Step {meta_step}")
-        # Sample meta-batch of data and samples for model initialization
+        # Sample meta batch of data and samples for model initialization
         (meta_image_batch, meta_label_batch) = data_generator.sample_batch("meta_train", config.meta_batch_size,
                                                                            shuffle=True)
         sample_input, sample_label = meta_image_batch[0, 0, 0, :], meta_label_batch[0, 0, 0]
@@ -199,8 +200,7 @@ def meta_validate(model, data_generator, config, cuda=False):
     # Sample meta-batch of data and samples for model initialization
     (meta_image_batch, meta_label_batch) = data_generator.sample_batch("meta_val", config.meta_batch_size,
                                                                        shuffle=True)
-    sample_input, sample_label = meta_image_batch[0, 0, 0, :], meta_label_batch[0, 0, 0]
-    sample_input = torch.tensor(sample_input).view(-1, 1, config.img_size, config.img_size)
+    _, sample_label = meta_image_batch[0, 0, 0, :], meta_label_batch[0, 0, 0]
 
     support_losses, support_accuracies, query_losses, query_accuracies, _ = meta_iteration(model, config,
                                                                                                         meta_image_batch,
