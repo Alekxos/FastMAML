@@ -18,4 +18,4 @@ Output is saved by default to the `./output` directory, which will be created if
 Meta-training results on the Omniglot dataset over 5,000 iterations, smoothed over an interval of 10:
 
 
-![Alt text](graphs/meta_validation_query_accuracy.png?raw=true "Title")
+![Alt text](./graphs/meta_validation_query_accuracy.png?raw=true "Title")
