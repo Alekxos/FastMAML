@@ -29,7 +29,7 @@ class Config:
 
 @click.command()
 @click.argument('dataset', type=str, default='omniglot')
-@click.option('--meta_train_iterations', type=int, default=15000, help='number of meta-training iterations')
+@click.option('--meta_train_iterations', type=int, default=5000, help='number of meta-training iterations')
 @click.option('--meta_lr', type=float, default=0.001, help='outer loop learning rate')
 @click.option('--inner_lr', type=float, default=0.04, help='inner loop learning rate')
 @click.option('--meta_batch_size', type=int, default=32, help='number of tasks sampled for a single meta-step')
